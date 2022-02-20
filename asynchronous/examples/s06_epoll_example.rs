@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 
 // https://github.com/zupzup/rust-epoll-example
@@ -55,7 +56,7 @@ impl RequestContext {
             content_length: 0,
         }
     }
-
+    #[cfg(unix)]
     fn read_cb(&mut self, key: u64, epoll_fd: RawFd) -> io::Result<()> {
         let mut buf = [0u8; 4096];
         match self.stream.read(&mut buf) {
@@ -95,7 +96,7 @@ impl RequestContext {
             }
         }
     }
-
+    #[cfg(unix)]
     fn write_cb(&mut self, key: u64, epoll_fd: RawFd) -> io::Result<()> {
         match self.stream.write(HTTP_RESP) {
             Ok(_) => println!("answered from request {}", key),
@@ -108,8 +109,9 @@ impl RequestContext {
         Ok(())
     }
 }
-
+#[cfg(unix)]
 const READ_FLAGS: i32 = libc::EPOLLONESHOT | libc::EPOLLIN;
+#[cfg(unix)]
 const WRITE_FLAGS: i32 = libc::EPOLLONESHOT | libc::EPOLLOUT;
 
 const HTTP_RESP: &[u8] = br#"HTTP/1.1 200 OK
@@ -117,6 +119,10 @@ content-type: text/html
 content-length: 5
 Hello"#;
 
+#[cfg(windows)]
+fn main() {}
+
+#[cfg(unix)]
 fn main() -> io::Result<()> {
     let mut request_contexts: HashMap<u64, RequestContext> = HashMap::new();
     let mut events: Vec<libc::epoll_event> = Vec::with_capacity(1024);
@@ -183,7 +189,7 @@ fn main() -> io::Result<()> {
         }
     }
 }
-
+#[cfg(unix)]
 fn epoll_create() -> io::Result<RawFd> {
     let fd = syscall!(epoll_create1(0))?;
     if let Ok(flags) = syscall!(fcntl(fd, libc::F_GETFD)) {
@@ -192,35 +198,35 @@ fn epoll_create() -> io::Result<RawFd> {
 
     Ok(fd)
 }
-
+#[cfg(unix)]
 fn listener_read_event(key: u64) -> libc::epoll_event {
     libc::epoll_event {
         events: READ_FLAGS as u32,
         u64: key,
     }
 }
-
+#[cfg(unix)]
 fn listener_write_event(key: u64) -> libc::epoll_event {
     libc::epoll_event {
         events: WRITE_FLAGS as u32,
         u64: key,
     }
 }
-
+#[cfg(unix)]
 fn close(fd: RawFd) {
     let _ = syscall!(close(fd));
 }
-
+#[cfg(unix)]
 fn add_interest(epoll_fd: RawFd, fd: RawFd, mut event: libc::epoll_event) -> io::Result<()> {
     syscall!(epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut event))?;
     Ok(())
 }
-
+#[cfg(unix)]
 fn modify_interest(epoll_fd: RawFd, fd: RawFd, mut event: libc::epoll_event) -> io::Result<()> {
     syscall!(epoll_ctl(epoll_fd, libc::EPOLL_CTL_MOD, fd, &mut event))?;
     Ok(())
 }
-
+#[cfg(unix)]
 fn remove_interest(epoll_fd: RawFd, fd: RawFd) -> io::Result<()> {
     syscall!(epoll_ctl(
         epoll_fd,

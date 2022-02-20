@@ -68,14 +68,6 @@ struct Task {
     task_sender: SyncSender<Arc<Task>>,
 }
 
-pub fn new_executor_and_spawner() -> (Executor, Spawner) {
-    // 任务通道允许的最大缓冲数(任务队列的最大长度)
-    // 当前的实现仅仅是为了简单，在实际的执行中，并不会这么使用
-    const MAX_QUEUED_TASKS: usize = 10_000;
-    let (task_sender, ready_queue) = sync_channel(MAX_QUEUED_TASKS);
-    (Executor { ready_queue }, Spawner { task_sender })
-}
-
 /// 在执行器 poll 一个 Future 之前，首先需要调用 wake 方法进行唤醒，然后再由 Waker 负责调度该任务并将其放入任务通道中。
 /// 创建 Waker 的最简单的方式就是实现 ArcWake 特征，先来为我们的任务实现 ArcWake 特征，这样它们就能被转变成 Waker 然后被唤醒:
 impl ArcWake for Task {
@@ -84,4 +76,12 @@ impl ArcWake for Task {
         let cloned = arc_self.clone();
         arc_self.task_sender.send(cloned).expect("任务队列已满");
     }
+}
+
+pub fn new_executor_and_spawner() -> (Executor, Spawner) {
+    // 任务通道允许的最大缓冲数(任务队列的最大长度)
+    // 当前的实现仅仅是为了简单，在实际的执行中，并不会这么使用
+    const MAX_QUEUED_TASKS: usize = 10_000;
+    let (task_sender, ready_queue) = sync_channel(MAX_QUEUED_TASKS);
+    (Executor { ready_queue }, Spawner { task_sender })
 }
