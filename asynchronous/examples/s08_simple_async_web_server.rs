@@ -5,12 +5,37 @@ use futures::io::Error;
 use futures::stream::StreamExt;
 use futures::task::Context;
 use futures::{AsyncReadExt, AsyncWriteExt};
-use std::fs;
 
 use std::task::Poll;
 
+use async_std::task;
 use std::cmp::min;
 use std::pin::Pin;
+use std::time::Duration;
+
+const HTML_404: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf - 8">
+    <title>Hello!</title>
+</head>
+<body>
+<h1>Oops!</h1>
+<p>Sorry, I don't know what you're asking for.</p>
+</body>
+</html>"#;
+
+const HTML_HELLO: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Hello!</title>
+</head>
+<body>
+<h1>Hello!</h1>
+<p>Hi from Rust</p>
+</body>
+</html>"#;
 
 #[async_std::main]
 async fn main() {
@@ -43,17 +68,17 @@ async fn handle_connection(mut stream: impl Read + Write + Unpin) {
     stream.read(&mut buffer).await.unwrap();
 
     let get = b"GET / HTTP/1.1\r\n";
+    let sleep = b"GET /sleep HTTP/1.1\r\n";
 
     // 处理HTTP协议头，若不符合则返回404和对应的`html`文件
-    let (status_line, filename) = if buffer.starts_with(get) {
-        ("HTTP/1.1 200 OK\r\n\r\n", "htmls/hello.html")
+    let (status_line, contents) = if buffer.starts_with(get) {
+        ("HTTP/1.1 200 OK\r\n\r\n", HTML_HELLO)
+    } else if buffer.starts_with(sleep) {
+        task::sleep(Duration::from_secs(5)).await;
+        ("HTTP/1.1 200 OK\r\n\r\n", HTML_HELLO)
     } else {
-        (
-            "HTTP/1.1 404 NOT FOUND\r\n\r\n",
-            "asynchronous/htmls/404.html",
-        )
+        ("HTTP/1.1 404 NOT FOUND\r\n\r\n", HTML_404)
     };
-    let contents = fs::read_to_string(filename).unwrap();
 
     // 将回复内容写入连接缓存中
     let response = format!("{status_line}{contents}");
@@ -113,7 +138,7 @@ async fn test_handle_connection() {
     let mut buf = [0u8; 1024];
     stream.read(&mut buf).await.unwrap();
 
-    let expected_contents = fs::read_to_string("htmls/hello.html").unwrap();
+    let expected_contents = HTML_HELLO;
     let expected_response = format!("HTTP/1.1 200 OK\r\n\r\n{}", expected_contents);
     assert!(stream.write_data.starts_with(expected_response.as_bytes()));
 }
