@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use bytes::Bytes;
 use mini_redis::Command::{self, Get, Set};
 use mini_redis::{Connection, Frame};
