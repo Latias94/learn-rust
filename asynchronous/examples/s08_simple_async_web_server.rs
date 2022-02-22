@@ -62,6 +62,8 @@ async fn main() {
         .await;
 }
 
+// 由于浏览器可能会复用单链接，所以测试 http://127.0.0.1:7878/sleep 的时候，
+// 需要一个浏览器页面上打开，另一个在隐私模式或者其他浏览器同时打开来测试。
 async fn handle_connection(mut stream: impl Read + Write + Unpin) {
     // 从连接中顺序读取 1024 字节数据
     let mut buffer = [0; 1024];
@@ -70,7 +72,7 @@ async fn handle_connection(mut stream: impl Read + Write + Unpin) {
     let get = b"GET / HTTP/1.1\r\n";
     let sleep = b"GET /sleep HTTP/1.1\r\n";
 
-    // 处理HTTP协议头，若不符合则返回404和对应的`html`文件
+    // 处理HTTP协议头，若不符合则返回404页面
     let (status_line, contents) = if buffer.starts_with(get) {
         ("HTTP/1.1 200 OK\r\n\r\n", HTML_HELLO)
     } else if buffer.starts_with(sleep) {
