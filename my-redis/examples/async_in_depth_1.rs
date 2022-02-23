@@ -24,7 +24,6 @@ impl Future for Delay {
     }
 }
 
-
 #[tokio::main]
 async fn main() {
     let when = Instant::now() + Duration::from_millis(10);
@@ -38,6 +37,7 @@ async fn main() {
 }
 
 // 生成的代码类似下面：
+//
 enum MainFuture {
     // 初始化，但永远不会被 poll
     State0,
