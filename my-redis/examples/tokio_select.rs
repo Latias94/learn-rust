@@ -16,10 +16,10 @@ async fn main() {
     // 一旦其中任何一个 select 分支完成，就会 dropped 掉其他没执行的分支
     tokio::select! {
         val = rx1 => {
-             println!("rx1 completed first with {:?}", val);
+            println!("rx1 completed first with {:?}", val);
         }
         val = rx2 => {
-             println!("rx2 completed first with {:?}", val);
+            println!("rx2 completed first with {:?}", val);
         }
     }
 }
