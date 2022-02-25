@@ -1,8 +1,10 @@
 use tokio::sync::oneshot;
+
 async fn some_operation() -> String {
     // 在这里执行一些操作...
     "some operation".into()
 }
+
 #[tokio::main]
 async fn main() {
     // 对于 Tokio 的 oneshot 的接收端来说，它在被释放时会发送一个关闭通知到发送端，因此发送端可以通过释放任务的方式来终止正在执行的任务。
