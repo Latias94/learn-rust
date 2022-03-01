@@ -4,4 +4,5 @@ members = [
     "playground",
     "asynchronous",
     "my-redis",
+    "socket",
 ]
