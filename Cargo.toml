@@ -5,6 +5,7 @@ members = [
     "asynchronous",
     "my-redis",
     "socket",
-    "try-dioxus",
     "system",
+    "try-dioxus",
+    "try-prost",
 ]
