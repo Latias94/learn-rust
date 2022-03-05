@@ -6,4 +6,5 @@ members = [
     "my-redis",
     "socket",
     "try-dioxus",
+    "system",
 ]
