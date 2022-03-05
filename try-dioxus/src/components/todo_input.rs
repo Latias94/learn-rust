@@ -15,14 +15,15 @@ pub fn todo_input<'a>(cx: Scope<'a, TodoInputProps<'a>>) -> Element {
     let set_todos = &cx.props.set_todos;
     rsx! {cx,
         header{class: "header",
+            h1{"Todos"},
             input{
                 class:"new-todo",
                 placeholder:"What needs to be done?",
                 value:"{draft}",
-                oninput: move|e|{
-                        set_draft(e.value.clone());
-                    },
-                onkeydown: move |e|{
+                oninput: move |e| {
+                    set_draft(e.value.clone());
+                },
+                onkeydown: move |e| {
                     if e.key == "Enter" && !draft.is_empty(){
                         let id = NEXT_TODO_ID.fetch_add(1, Ordering::Relaxed);
                         set_todos.make_mut().insert(id, TodoItem {

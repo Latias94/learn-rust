@@ -27,9 +27,9 @@ pub fn todo_item<'a>(cx: Scope<'a, TodoItemProps<'a>>) -> Element {
                 checked:"{todo.completed}",
                 onchange: move |e|{
                     info!("todo item toggled {e:?}");
-                    set_todos.make_mut().get_mut(&id).map(|todo|{
+                    if let Some(todo) = set_todos.make_mut().get_mut(&id) {
                         todo.completed = e.value.parse().unwrap();
-                    });
+                    }
                 }
             },
             label {
@@ -46,9 +46,9 @@ pub fn todo_item<'a>(cx: Scope<'a, TodoItemProps<'a>>) -> Element {
                 value:"{todo.title}",
                 oninput: move |e|{
                     let mut todos = set_todos.make_mut();
-                    todos.get_mut(&id).map(|todo|{
-                        todo.title = e.value.clone()
-                    });
+                    if let Some(todo) = todos.get_mut(&id) {
+                        todo.title = e.value.clone();
+                    }
                 },
                 autofocus:"true",
                 onkeydown: move |e|{

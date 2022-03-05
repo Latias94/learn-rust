@@ -39,14 +39,12 @@ pub fn app(cx: Scope) -> Element {
         })
         .map(|(id, _)| (*id))
         .collect::<Vec<_>>();
-
     info!("todos: {todos:?}, filtered todos: {filtered_todos:?}");
 
     cx.render(rsx! {
         section {
             class: "todoapp",
             style{[include_str!("style.css")]},
-            h1{"Todos"},
             div{
                 rsx!(todo_input(set_todos: set_todos))
                 ul{
@@ -55,7 +53,7 @@ pub fn app(cx: Scope) -> Element {
                         rsx!(todo_item(id: *id, set_todos: set_todos)) //id, &todos[id]
                     })
                 }
-                rsx!(todo_filter())
+                rsx!(todo_filter(set_todos: set_todos, set_filter: set_filter))
             }
         }
     })

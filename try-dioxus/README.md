@@ -1,6 +1,9 @@
 # Dioxus
 
+参考 [Rust crates 大巡礼：用 dioxus 开发 WASM 前端](https://www.bilibili.com/video/BV1iL4y1g7kR) 。
+
 运行前记得添加 WASM 的 target。
+
 ```shell
 rustup target add wasm32-unknown-unknown
 ```
