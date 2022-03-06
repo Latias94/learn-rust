@@ -1,0 +1,15 @@
+[package]
+name = "try-wgpu"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+image = "0.24" # 提供图像编码和解码的原生实现以及一些基本的图像操作函数
+winit = "0.26" # 一个跨平台的窗口创建和事件循环管理库
+cgmath = "0.18" # 一个底层线性代数库，主要针对计算机图形学。
+env_logger = "0.9" # 一个简单的记录器，可以通过环境变量配置
+log = "0.4"
+wgpu = "0.12" # 一个基于 WebGPU 的跨平台图形和计算库。
+pollster = "0.2" # Pollster 是 Rust 的一个非常小的异步执行器，它允许您阻塞一个线程，直到将来的线程完成。
