@@ -1,4 +1,5 @@
-use winit::event::WindowEvent;
+use wgpu::{ShaderModule, TextureFormat};
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::window::Window;
 
 pub struct State {
@@ -12,6 +13,9 @@ pub struct State {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub clear_color: wgpu::Color,
+    pub render_pipeline: wgpu::RenderPipeline,
+    pub challenge_render_pipeline: wgpu::RenderPipeline,
+    pub use_color: bool,
 }
 
 impl State {
@@ -67,6 +71,116 @@ impl State {
         surface.configure(&device, &config);
 
         let clear_color = wgpu::Color::BLACK;
+        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+        // 也可以用宏：
+        // let shader = device.create_shader_module(&wgpu::include_wgsl!("shader.wgsl"));
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        // 下面的 API 对于熟悉 OpenGL, Dx 接口的应该就很熟悉了
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main", // 1. 指定 shader 对应着色器的函数入口名
+                buffers: &[],           // 2. 要传递给顶点着色器的顶点类型
+            },
+            fragment: Some(wgpu::FragmentState {
+                // 3. 片元着色器是可选的，所以这里用 Some 包裹
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[wgpu::ColorTargetState {
+                    // 4. tells wgpu what color outputs it should set up
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                }],
+            }),
+            // describes how to interpret our vertices when converting them into triangles.
+            primitive: wgpu::PrimitiveState {
+                // 1. Using PrimitiveTopology::TriangleList means that each three vertices will correspond to one triangle.
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                // 2. The `front_face` and `cull_mode` fields tell wgpu how to determine whether a given triangle is facing forward or not.
+                front_face: wgpu::FrontFace::Ccw, // 根据摄像机的观察视角，将顶点顺序为逆时针方向的三角形看作正面朝向，而把顺 时针绕序的三角形当作背面朝向。
+                cull_mode: Some(wgpu::Face::Back), // 剔除背面朝向的三角形
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            // 1. We're not using a depth/stencil buffer currently, so we leave depth_stencil as None.
+            // This will change later.
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                // 2. count determines how many samples the pipeline will use.
+                // Multisampling is a complex topic, so we won't get into it here.
+                count: 1,
+                // 3. mask specifies which samples should be active. In this case we are using all of them.
+                mask: !0,
+                // 4. alpha_to_coverage_enabled has to do with anti-aliasing.
+                // We're not covering anti-aliasing here, so we'll leave this as false now.
+                alpha_to_coverage_enabled: false,
+            },
+            // 5. multiview indicates how many array layers the render attachments can have.
+            // We won't be rendering to array textures so we can set this to None.
+            multiview: None,
+        });
+
+        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Challenge Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("challenge.wgsl").into()),
+        });
+
+        let challenge_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                // If the pipeline will be used with a multiview render pass, this
+                // indicates how many array layers the attachments will have.
+                multiview: None,
+            });
+
+        let use_color = true;
 
         Self {
             instance,
@@ -77,6 +191,9 @@ impl State {
             config,
             size,
             clear_color,
+            render_pipeline,
+            challenge_render_pipeline,
+            use_color,
         }
     }
 
@@ -104,6 +221,18 @@ impl State {
                     b: 1.0,
                     a: 1.0,
                 };
+                true
+            }
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        ..
+                    },
+                ..
+            } => {
+                self.use_color = *state == ElementState::Released;
                 true
             }
             _ => false,
@@ -135,7 +264,7 @@ impl State {
         // 这个大括号作用域是为了 begin_render_pass() 借用了 encoder (&mut self)，要等释放了可变借用后，才能调用 encoder.finish()。
         // 也可以 drop(render_pass)。
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 // The color_attachments describe where we are going to draw our color to.
                 // We use the TextureView we created earlier to make sure that we render to the screen.
@@ -159,6 +288,15 @@ impl State {
                 // We'll use depth_stencil_attachment later, but we'll set it to None for now.
                 depth_stencil_attachment: None,
             });
+            // 前面创建了 render pipeline，这里要给 pass 设置上
+            render_pass.set_pipeline(if self.use_color {
+                &self.render_pipeline
+            } else {
+                &self.challenge_render_pipeline
+            });
+            // We tell wgpu to draw something with 3 vertices, and 1 instance.
+            // This is where [[builtin(vertex_index)]] comes from. 我们手动传了顶点进去
+            render_pass.draw(0..3, 0..1);
         }
 
         // submit will accept anything that implements IntoIter
