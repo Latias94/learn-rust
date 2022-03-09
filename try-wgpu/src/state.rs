@@ -1,4 +1,5 @@
-use wgpu::{ShaderModule, TextureFormat};
+use crate::vertex::{Vertex, VERTICES};
+use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::window::Window;
 
@@ -16,6 +17,8 @@ pub struct State {
     pub render_pipeline: wgpu::RenderPipeline,
     pub challenge_render_pipeline: wgpu::RenderPipeline,
     pub use_color: bool,
+    pub vertex_buffer: wgpu::Buffer,
+    pub num_vertices: u32,
 }
 
 impl State {
@@ -91,7 +94,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main", // 1. 指定 shader 对应着色器的函数入口名
-                buffers: &[],           // 2. 要传递给顶点着色器的顶点类型
+                buffers: &[Vertex::desc()], // 2. 要传递给顶点着色器的顶点类型
             },
             fragment: Some(wgpu::FragmentState {
                 // 3. 片元着色器是可选的，所以这里用 Some 包裹
@@ -110,7 +113,7 @@ impl State {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 // 2. The `front_face` and `cull_mode` fields tell wgpu how to determine whether a given triangle is facing forward or not.
-                front_face: wgpu::FrontFace::Ccw, // 根据摄像机的观察视角，将顶点顺序为逆时针方向的三角形看作正面朝向，而把顺 时针绕序的三角形当作背面朝向。
+                front_face: wgpu::FrontFace::Ccw, // 根据摄像机的观察视角，将顶点顺序为逆时针方向的三角形看作正面朝向，而把顺时针绕序的三角形当作背面朝向。
                 cull_mode: Some(wgpu::Face::Back), // 剔除背面朝向的三角形
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
@@ -149,7 +152,7 @@ impl State {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
-                    buffers: &[],
+                    buffers: &[Vertex::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
@@ -182,6 +185,12 @@ impl State {
 
         let use_color = true;
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES), // using bytemuck to cast our VERTICES as a &[u8]
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let num_vertices = VERTICES.len() as u32;
         Self {
             instance,
             adapter,
@@ -194,6 +203,8 @@ impl State {
             render_pipeline,
             challenge_render_pipeline,
             use_color,
+            vertex_buffer,
+            num_vertices
         }
     }
 
@@ -294,9 +305,15 @@ impl State {
             } else {
                 &self.challenge_render_pipeline
             });
+            // One more thing: we need to actually set the vertex buffer in the render method otherwise our program will crash.
+            // set_vertex_buffer takes two parameters. The first is what buffer slot to use for this vertex buffer.
+            // You can have multiple vertex buffers set at a time.
+            // The second parameter is the slice of the buffer to use. You can store as many objects in a buffer as your hardware allows,
+            // so slice allows us to specify which portion of the buffer to use. We use .. to specify the entire buffer.
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             // We tell wgpu to draw something with 3 vertices, and 1 instance.
             // This is where [[builtin(vertex_index)]] comes from. 我们手动传了顶点进去
-            render_pass.draw(0..3, 0..1);
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
         // submit will accept anything that implements IntoIter

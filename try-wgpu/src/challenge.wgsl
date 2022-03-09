@@ -1,5 +1,10 @@
 // Vertex shader
 
+struct VertexInput {
+    [[location(0)]] position: vec3<f32>;
+    [[location(1)]] color: vec3<f32>;
+};
+
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
     [[location(0)]] position: vec2<f32>;
@@ -7,7 +12,8 @@ struct VertexOutput {
 
 [[stage(vertex)]]
 fn vs_main(
-    [[builtin(vertex_index)]] in_vertex_index: u32
+    [[builtin(vertex_index)]] in_vertex_index: u32,
+    model: VertexInput
 ) -> VertexOutput {
     var out: VertexOutput;
     let x = f32(1 - i32(in_vertex_index)) * 0.5;
