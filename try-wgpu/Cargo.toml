@@ -14,3 +14,4 @@ log = "0.4"
 wgpu = "0.12" # 一个基于 WebGPU 的跨平台图形和计算库。
 pollster = "0.2" # Pollster 是 Rust 的一个非常小的异步执行器，它允许您阻塞一个线程，直到将来的线程完成。
 bytemuck = { version = "1.8", features = ["derive"] } # gives small utilities for casting between plain data types
+anyhow = "1" # 可以更好地处理错误

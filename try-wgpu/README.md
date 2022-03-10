@@ -6,3 +6,7 @@
 [workspace]
 resolver = "2" # 如果有 workspace, wgpu 需要在 workspace 指明 resolver = "2"
 ```
+
+```shell
+cargo run --bin try-wgpu
+```

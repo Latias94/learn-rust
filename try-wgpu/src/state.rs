@@ -1,3 +1,4 @@
+use crate::texture;
 use crate::vertex::{Vertex, INDICES, VERTICES};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
@@ -19,11 +20,11 @@ pub struct State {
     pub index_buffer: wgpu::Buffer,
     pub num_vertices: u32,
     pub num_indices: u32,
-
-    pub challenge_vertex_buffer: wgpu::Buffer,
-    pub challenge_index_buffer: wgpu::Buffer,
-    pub num_challenge_indices: u32,
-    pub use_complex: bool,
+    pub diffuse_bind_group: wgpu::BindGroup,
+    pub diffuse_texture: texture::Texture,
+    pub cartoon_bind_group: wgpu::BindGroup,
+    pub cartoon_texture: texture::Texture,
+    pub is_space_pressed: bool,
 }
 
 impl State {
@@ -78,6 +79,79 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        let diffuse_bytes = include_bytes!("happy-tree.png");
+        let diffuse_texture =
+            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+
+        // BindGroup 描述了一组资源以及它们如何被着色器访问。我们使用 BindGroupLayout 创建一个 BindGroup。
+        // 我们的 texture_bind_group_layout 有两个条目：一个是绑定 0 的采样纹理，另一个是绑定 1 的采样器。
+        // 这两个绑定只对 FRAGMENT 所指定的片段着色器可见。这个字段的可能值是 NONE、VERTEX、FRAGMENT 或 COMPUTE 的任意位数组合。
+        // 大多数情况下，我们只对纹理和采样器使用 FRAGMENT，但知道还有什么可用的也很好。
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            // SamplerBindingType::Comparison is only for TextureSampleType::Depth
+                            // SamplerBindingType::Filtering if the sample_type of the texture is:
+                            //     TextureSampleType::Float { filterable: true }
+                            // Otherwise you'll get an error.
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+        // BindGroup 是 BindGroupLayout 的一个更具体的声明。它们分开的原因是它允许我们动态交换 BindGroup，
+        // 只要它们都共享同一个 BindGroupLayout。我们创建的每个纹理和采样器都需要被添加到一个 BindGroup 中。
+        // 为了我们的目的，我们将为每个纹理创建一个新的绑定组。
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
+
+        let cartoon_bytes = include_bytes!("happy-tree-cartoon.png");
+        let cartoon_texture =
+            texture::Texture::from_bytes(&device, &queue, cartoon_bytes, "happy-tree-cartoon.png")
+                .unwrap();
+        let cartoon_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&cartoon_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&cartoon_texture.sampler),
+                },
+            ],
+            label: Some("cartoon_bind_group"),
+        });
+
         let clear_color = wgpu::Color::BLACK;
         let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -88,7 +162,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -159,37 +233,7 @@ impl State {
 
         let num_vertices = VERTICES.len() as u32;
         let num_indices = INDICES.len() as u32;
-
-        let angle = std::f32::consts::PI * 2.0 / num_vertices as f32;
-        let challenge_verts = (0..num_vertices)
-            .map(|i| {
-                let theta = angle * i as f32;
-                Vertex {
-                    position: [0.5 * theta.cos(), -0.5 * theta.sin(), 0.0],
-                    color: [(1.0 + theta.cos()) / 2.0, (1.0 + theta.sin()) / 2.0, 1.0],
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let num_triangles = num_vertices as u16 - 2;
-        let challenge_indices = (1u16..num_triangles + 1)
-            .into_iter()
-            .flat_map(|i| vec![i + 1, i, 0])
-            .collect::<Vec<_>>();
-        let num_challenge_indices = challenge_indices.len() as u32;
-
-        let challenge_vertex_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Challenge Vertex Buffer"),
-                contents: bytemuck::cast_slice(&challenge_verts),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let challenge_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Challenge Index Buffer"),
-            contents: bytemuck::cast_slice(&challenge_indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let use_complex = false;
+        let is_space_pressed = false;
 
         Self {
             instance,
@@ -205,10 +249,11 @@ impl State {
             index_buffer,
             num_vertices,
             num_indices,
-            challenge_vertex_buffer,
-            challenge_index_buffer,
-            num_challenge_indices,
-            use_complex,
+            diffuse_bind_group,
+            diffuse_texture,
+            cartoon_bind_group,
+            cartoon_texture,
+            is_space_pressed,
         }
     }
 
@@ -247,7 +292,7 @@ impl State {
                     },
                 ..
             } => {
-                self.use_complex = *state == ElementState::Pressed;
+                self.is_space_pressed = *state == ElementState::Pressed;
                 true
             }
             _ => false,
@@ -303,25 +348,26 @@ impl State {
                 // We'll use depth_stencil_attachment later, but we'll set it to None for now.
                 depth_stencil_attachment: None,
             });
-            let data = if self.use_complex {
-                (
-                    &self.challenge_vertex_buffer,
-                    &self.challenge_index_buffer,
-                    self.num_challenge_indices,
-                )
-            } else {
-                (&self.vertex_buffer, &self.index_buffer, self.num_indices)
-            };
+            let data = (&self.vertex_buffer, &self.index_buffer, self.num_indices);
 
             // 前面创建了 render pipeline，这里要给 pass 设置上
             render_pass.set_pipeline(&self.render_pipeline);
+
+            render_pass.set_bind_group(
+                0,
+                if !self.is_space_pressed {
+                    &self.diffuse_bind_group
+                } else {
+                    &self.cartoon_bind_group
+                },
+                &[],
+            );
             // One more thing: we need to actually set the vertex buffer in the render method otherwise our program will crash.
             // set_vertex_buffer takes two parameters. The first is what buffer slot to use for this vertex buffer.
             // You can have multiple vertex buffers set at a time.
             // The second parameter is the slice of the buffer to use. You can store as many objects in a buffer as your hardware allows,
             // so slice allows us to specify which portion of the buffer to use. We use .. to specify the entire buffer.
             render_pass.set_vertex_buffer(0, data.0.slice(..));
-
             render_pass.set_index_buffer(data.1.slice(..), wgpu::IndexFormat::Uint16);
             // When using an index buffer, you need to use draw_indexed. The draw method ignores the index buffer.
             // Also make sure you use the number of indices (num_indices), not vertices as your model will either draw wrong,
