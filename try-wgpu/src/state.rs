@@ -1,3 +1,4 @@
+use crate::camera::{Camera, CameraController, CameraUniform};
 use crate::texture;
 use crate::vertex::{Vertex, INDICES, VERTICES};
 use wgpu::util::DeviceExt;
@@ -25,6 +26,11 @@ pub struct State {
     pub cartoon_bind_group: wgpu::BindGroup,
     pub cartoon_texture: texture::Texture,
     pub is_space_pressed: bool,
+    pub camera: Camera,
+    pub camera_uniform: CameraUniform,
+    pub camera_buffer: wgpu::Buffer,
+    pub camera_bind_group: wgpu::BindGroup,
+    pub camera_controller: CameraController,
 }
 
 impl State {
@@ -133,6 +139,53 @@ impl State {
             label: Some("diffuse_bind_group"),
         });
 
+        let camera = Camera {
+            // position the camera one unit up and 2 units back
+            // +z is out of the screen
+            eye: (0.0, 1.0, 2.0).into(),
+            // have it look at the origin
+            target: (0.0, 0.0, 0.0).into(),
+            // which way is "up"
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
         let cartoon_bytes = include_bytes!("happy-tree-cartoon.png");
         let cartoon_texture =
             texture::Texture::from_bytes(&device, &queue, cartoon_bytes, "happy-tree-cartoon.png")
@@ -162,7 +215,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture_bind_group_layout],
+                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -234,7 +287,7 @@ impl State {
         let num_vertices = VERTICES.len() as u32;
         let num_indices = INDICES.len() as u32;
         let is_space_pressed = false;
-
+        let camera_controller = CameraController::new(0.2);
         Self {
             instance,
             adapter,
@@ -251,6 +304,11 @@ impl State {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
+            camera,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
+            camera_controller,
             cartoon_bind_group,
             cartoon_texture,
             is_space_pressed,
@@ -287,19 +345,37 @@ impl State {
                 input:
                     KeyboardInput {
                         state,
-                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        virtual_keycode: Some(keycode),
                         ..
                     },
                 ..
             } => {
-                self.is_space_pressed = *state == ElementState::Pressed;
+                if keycode == &VirtualKeyCode::Space {
+                    self.is_space_pressed = *state == ElementState::Pressed;
+                }
+                self.camera_controller.process_events(event);
+
                 true
             }
             _ => false,
         }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        // 1. 我们可以创建一个单独的缓冲区，并把它的内容复制到我们的 Camera_buffer。这个新的缓冲区被称为暂存缓冲区 staging buffer。
+        // 这种方法通常是这样做的，因为它允许主缓冲区（在这种情况下是 camera_buffer）的内容只被 gpu 访问。
+        // 2. 我们可以在缓冲区本身调用映射方法的 map_read_async 和 map_write_async。这些方法允许我们直接访问缓冲区的内容，
+        // 但需要我们处理这些方法的异步问题，这也需要我们的缓冲区使用 BufferUsages::MAP_READ 和 / 或 BufferUsages::MAP_WRITE。
+        // 我们在这里就不说了，如果你想了解更多，可以查看 Wgpu without a window 教程。
+        // 3. 我们可以在 queue 上使用 write_buffer。
+        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_uniform.update_view_proj(&self.camera);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         // The get_current_texture function will wait for the surface to provide a new SurfaceTexture that we will render to.
@@ -362,6 +438,7 @@ impl State {
                 },
                 &[],
             );
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             // One more thing: we need to actually set the vertex buffer in the render method otherwise our program will crash.
             // set_vertex_buffer takes two parameters. The first is what buffer slot to use for this vertex buffer.
             // You can have multiple vertex buffers set at a time.
