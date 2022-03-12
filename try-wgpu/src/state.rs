@@ -35,6 +35,7 @@ pub struct State {
     pub camera_controller: CameraController,
     pub instances: Vec<Instance>,
     pub instance_buffer: wgpu::Buffer,
+    pub depth_texture: texture::Texture,
 }
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
@@ -265,9 +266,15 @@ impl State {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            // 1. We're not using a depth/stencil buffer currently, so we leave depth_stencil as None.
-            // This will change later.
-            depth_stencil: None,
+            // 1. We're using a depth/stencil buffer currently
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                // The depth_compare function tells us when to discard a new pixel. Using LESS means pixels will be drawn front to back.
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(), // 2.
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 // 2. count determines how many samples the pipeline will use.
                 // Multisampling is a complex topic, so we won't get into it here.
@@ -330,6 +337,10 @@ impl State {
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+
+        let depth_texture =
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+
         Self {
             instance,
             adapter,
@@ -356,6 +367,7 @@ impl State {
             is_space_pressed,
             instances,
             instance_buffer,
+            depth_texture
         }
     }
 
@@ -363,6 +375,10 @@ impl State {
     /// surface everytime the window's size changes. That's the reason we stored the physical size
     /// and the config used to configure the surface. With all of these, the resize method is very simple.
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        // Make sure you update the depth_texture after you update config. 
+        // If you don't, your program will crash as the depth_texture will be a different size than the surface texture.
+        self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
@@ -481,8 +497,14 @@ impl State {
                         store: true,
                     },
                 }],
-                // We'll use depth_stencil_attachment later, but we'll set it to None for now.
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
             });
 
             // 前面创建了 render pipeline，这里要给 pass 设置上
