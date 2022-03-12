@@ -2,6 +2,7 @@ mod state;
 mod vertex;
 mod texture;
 mod camera;
+mod instance;
 
 pub use state::*;
 

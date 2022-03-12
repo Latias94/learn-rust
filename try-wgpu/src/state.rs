@@ -1,6 +1,8 @@
 use crate::camera::{Camera, CameraController, CameraUniform};
+use crate::instance::{Instance, InstanceRaw, ROTATION_SPEED};
 use crate::texture;
 use crate::vertex::{Vertex, INDICES, VERTICES};
+use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::window::Window;
@@ -31,7 +33,16 @@ pub struct State {
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
     pub camera_controller: CameraController,
+    pub instances: Vec<Instance>,
+    pub instance_buffer: wgpu::Buffer,
 }
+
+const NUM_INSTANCES_PER_ROW: u32 = 10;
+const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+    0.0,
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+);
 
 impl State {
     /// Creating some of the wgpu types requires async code
@@ -226,7 +237,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main", // 1. 指定 shader 对应着色器的函数入口名
-                buffers: &[Vertex::desc()], // 2. 要传递给顶点着色器的顶点类型
+                buffers: &[Vertex::desc(), InstanceRaw::desc()], // 2. 要传递给顶点着色器的顶点类型
             },
             fragment: Some(wgpu::FragmentState {
                 // 3. 片元着色器是可选的，所以这里用 Some 包裹
@@ -288,6 +299,37 @@ impl State {
         let num_indices = INDICES.len() as u32;
         let is_space_pressed = false;
         let camera_controller = CameraController::new(0.2);
+
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let position = cgmath::Vector3 {
+                        x: x as f32,
+                        y: 0.0,
+                        z: z as f32,
+                    } - INSTANCE_DISPLACEMENT;
+
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can effect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
         Self {
             instance,
             adapter,
@@ -312,6 +354,8 @@ impl State {
             cartoon_bind_group,
             cartoon_texture,
             is_space_pressed,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -375,6 +419,22 @@ impl State {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+
+        for instance in &mut self.instances {
+            let amount = cgmath::Quaternion::from_angle_y(cgmath::Rad(ROTATION_SPEED));
+            let current = instance.rotation;
+            instance.rotation = quat_mul(amount, current);
+        }
+        let instance_data = self
+            .instances
+            .iter()
+            .map(Instance::to_raw)
+            .collect::<Vec<_>>();
+        self.queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&instance_data),
+        );
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -424,7 +484,6 @@ impl State {
                 // We'll use depth_stencil_attachment later, but we'll set it to None for now.
                 depth_stencil_attachment: None,
             });
-            let data = (&self.vertex_buffer, &self.index_buffer, self.num_indices);
 
             // 前面创建了 render pipeline，这里要给 pass 设置上
             render_pass.set_pipeline(&self.render_pipeline);
@@ -444,12 +503,13 @@ impl State {
             // You can have multiple vertex buffers set at a time.
             // The second parameter is the slice of the buffer to use. You can store as many objects in a buffer as your hardware allows,
             // so slice allows us to specify which portion of the buffer to use. We use .. to specify the entire buffer.
-            render_pass.set_vertex_buffer(0, data.0.slice(..));
-            render_pass.set_index_buffer(data.1.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             // When using an index buffer, you need to use draw_indexed. The draw method ignores the index buffer.
             // Also make sure you use the number of indices (num_indices), not vertices as your model will either draw wrong,
             // or the method will panic because there are not enough indices.
-            render_pass.draw_indexed(0..data.2, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
 
             // We tell wgpu to draw something with 3 vertices, and 1 instance.
             // This is where [[builtin(vertex_index)]] comes from. 我们手动传了顶点进去
@@ -463,4 +523,32 @@ impl State {
 
         Ok(())
     }
+}
+
+fn quat_mul(q: cgmath::Quaternion<f32>, r: cgmath::Quaternion<f32>) -> cgmath::Quaternion<f32> {
+    // This block uses quaternions of the form of
+
+    // q=q0+iq1+jq2+kq3
+
+    // and
+
+    // r=r0+ir1+jr2+kr3.
+
+    // The quaternion product has the form of
+
+    // t=q×r=t0+it1+jt2+kt3,
+
+    // where
+
+    // t0=(r0 q0 − r1 q1 − r2 q2 − r3 q3)
+    // t1=(r0 q1 + r1 q0 − r2 q3 + r3 q2)
+    // t2=(r0 q2 + r1 q3 + r2 q0 − r3 q1)
+    // t3=(r0 q3 − r1 q2 + r2 q1 + r3 q0
+
+    let w = r.s * q.s - r.v.x * q.v.x - r.v.y * q.v.y - r.v.z * q.v.z;
+    let xi = r.s * q.v.x + r.v.x * q.s - r.v.y * q.v.z + r.v.z * q.v.y;
+    let yj = r.s * q.v.y + r.v.x * q.v.z + r.v.y * q.s - r.v.z * q.v.x;
+    let zk = r.s * q.v.z - r.v.x * q.v.y + r.v.y * q.v.x + r.v.z * q.s;
+
+    cgmath::Quaternion::new(w, xi, yj, zk)
 }

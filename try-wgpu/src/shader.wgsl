@@ -19,17 +19,31 @@ struct VertexOutput {
     [[location(0)]] tex_coords: vec2<f32>;
 };
 
+struct InstanceInput {
+    [[location(5)]] model_matrix_0: vec4<f32>;
+    [[location(6)]] model_matrix_1: vec4<f32>;
+    [[location(7)]] model_matrix_2: vec4<f32>;
+    [[location(8)]] model_matrix_3: vec4<f32>;
+};
+
 // [[stage(vertex)]] to mark this function as a valid entry point for a vertex shader. 
 [[stage(vertex)]]
 fn vs_main(
     // // We expect a u32 called in_vertex_index which gets its value from [[builtin(vertex_index)]]
     // [[builtin(vertex_index)]] in_vertex_index: u32
-    model: VertexInput
+    model: VertexInput,
+    instance: InstanceInput,
 ) -> VertexOutput {
+    let model_matrix = mat4x4<f32>(
+        instance.model_matrix_0,
+        instance.model_matrix_1,
+        instance.model_matrix_2,
+        instance.model_matrix_3,
+    );
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
     // 当涉及到矩阵时，乘法顺序很重要。向量在右边，矩阵在左边，按重要性排序
-    out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     return out;
 }
 
