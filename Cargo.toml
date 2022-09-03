@@ -10,5 +10,6 @@ members = [
     "try-dioxus",
     "try-prost",
     "try-wgpu",
-    "try-egui"
+    "try-egui",
+    "try-imgui"
 ]
